@@ -1,0 +1,3 @@
+[submodule "multiarch-rootfs-env"]
+	path = multiarch-rootfs-env
+	url = https://github.com/veritas501/multiarch-rootfs-env
