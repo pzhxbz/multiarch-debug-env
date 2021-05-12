@@ -1,10 +1,7 @@
-use std::{env, fs::{DirEntry, File, read_dir}, io::{self, BufReader}, path::Path, process::exit};
+use std::{env, fs::{File, read_dir}, io:: BufReader, path::Path, process::exit};
 use std::collections::HashMap;
 use indoc::indoc;
 use std::io::prelude::*;
-
-const VERSION:&str = "0.01"; 
-
 
 fn print_help(){
     print!(indoc! {"mutiarch debug {}
@@ -13,12 +10,14 @@ fn print_help(){
     
     FLAGS:
         -h                           Prints help information
+        -socat                       use socat to bind program's io to socket
     
     OPTIONS:
         -a <FILE1,FILE2,DIR1>        Add files or dirs send to qemu
-        -e \"ARGS\"                  Sets the ext args for qemu
-        -p <port>                    Sets the gdbserver's port,default 1234
+        -e 'ARGS'                    Sets the ext args for qemu
+        -g <port>                    Sets the gdbserver's port,default 1234
         -s <port>                    Sets the ssh server's port,default 2222
+        -p <port>                    Sets the socat bind program io port,default 23333
         -ep <port1> <port2>          append extra forward port
         -env LD_PRELOAD=./libc       add env to binary
         -h                           Prints this message or the help
@@ -28,13 +27,14 @@ fn print_help(){
     ARGS:
         <INPUT_FILE>                 Sets the input file to debug
         <args>                       Sets the args to binary
-        "},VERSION);
+        "},env!("CARGO_PKG_VERSION"));
     exit(0);
 }
 
 pub struct Args{
     pub    gdb_port:u32,
     pub    ssh_port:u32,
+    pub    prog_port:u32,
     pub    forward_port:Vec<(u32,u32)>,
     pub    qemu_arg:String,
     pub    prog_arg:Vec<String>,
@@ -43,7 +43,8 @@ pub struct Args{
     pub    input_file:Vec<String>,
     pub    work_dir:String,
     pub    rootfs:String,
-    pub    binary_path:String
+    pub    binary_path:String,
+    pub    no_socat:bool
 }
 #[allow(dead_code)]
 impl Args {
@@ -76,6 +77,8 @@ pub fn pasrse_args()->Args{
         prog_name:String::new(),
         work_dir:String::from("/tmp/multiarch_debug.env/"),
         rootfs:String::new(),
+        prog_port:23333,
+        no_socat:true,
         // add multiarch-rootfs-env for args[0]
         binary_path:Path::new(&args[0]).parent().unwrap().join("multiarch-rootfs-env/").to_str().unwrap().to_string()
     };
@@ -87,10 +90,15 @@ pub fn pasrse_args()->Args{
             res.prog_arg.push(a.to_string());
 
         }
-        else if a == "-p"{
+        else if a == "-g"{
             i += 1;
             res.gdb_port = args[i].parse()
                         .expect("failed to parse gdb port\n");
+        }
+        else if a == "-p"{
+            i += 1;
+            res.prog_port = args[i].parse()
+                        .expect("failed to parse prog port\n");
         }
         else if a == "-a"{
             i += 1;
@@ -107,6 +115,9 @@ pub fn pasrse_args()->Args{
             i += 1;
             res.ssh_port = args[i].parse()
                                 .expect("failed to parse ssh port\n");
+        }
+        else if a == "-socat"{
+            res.no_socat = false;
         }
         else if a == "-ep"{
             i += 1;
@@ -146,7 +157,7 @@ pub fn pasrse_args()->Args{
     return res;
 } 
 
-fn visit_dirs(dir: &Path) -> Vec<String> {
+pub fn visit_dirs(dir: &Path) -> Vec<String> {
     let mut res:Vec<String> = Vec::new();
     if dir.is_dir() {
         for entry in read_dir(dir).unwrap() {
@@ -225,6 +236,9 @@ pub fn modify_qemu_args(args:&Args,work_dir:&str) -> String{
     // print!("{}",qemu_args);
     let mut port_forward = format!(",hostfwd=tcp::{}-:{}",args.gdb_port,1234);
     port_forward += format!(",hostfwd=tcp::{}-:{}",args.ssh_port,22).as_str();
+    if !args.no_socat{
+        port_forward += format!(",hostfwd=tcp::{}-:{}",args.prog_port,23333).as_str();
+    }
     for p in args.forward_port.iter(){
         port_forward += format!(",hostfwd=tcp::{}-:{}",p.0,p.1).as_str();
     }
@@ -240,5 +254,5 @@ pub fn modify_qemu_args(args:&Args,work_dir:&str) -> String{
     let mut f = File::create(&file_path).unwrap();
     f.write_all(res.as_bytes()).expect("");
     f.sync_all().expect("");
-    return  file_path;
+    return file_path;
 }
