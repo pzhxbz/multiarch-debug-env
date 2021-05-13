@@ -7,6 +7,8 @@ use nix::unistd::{chdir, sleep};
 use subprocess::{Popen, PopenConfig, Redirection};
 use ssh2::*;
 
+use crate::args::print_menu;
+
 macro_rules! err_exit {
     ($X:expr) => {
         print!("{}",$X);
@@ -174,7 +176,7 @@ impl Connect {
         channel.read_to_string(&mut s).unwrap();
         s = s.replace("\n", "").replace(" ", "");
         channel.wait_close().unwrap();
-        let test = channel.exit_status().unwrap();
+        channel.exit_status().unwrap();
         // println!("check {} with {} exit with {}",path,s,test);
         if str::parse::<u32>(&s).unwrap() != 0 {
             self.check_dir(Path::new(path).parent().unwrap().to_str().unwrap());
@@ -192,11 +194,17 @@ impl Connect {
         let metadata = fs::metadata(&path).expect("unable to read metadata");
         let mut buffer = vec![0; metadata.len() as usize];
         file.read(&mut buffer).unwrap();
+        // println!("read {} ",n);
         let remote_path = Path::new("/root/").join(path);
         self.check_dir(remote_path.parent().unwrap().to_str().unwrap());
         let mut remote_file = self.s.scp_send(&remote_path,
         0o777, metadata.len(), None).unwrap();
-        remote_file.write(&buffer).unwrap();
+        let mut write_len:usize = 0;
+        while write_len <  metadata.len() as usize{
+            let n =  remote_file.write(&buffer[write_len..]).unwrap();
+            write_len += n;
+            // println!("write {} ",n);
+        }
         // Close the channel and wait for the whole content to be tranferred
         remote_file.send_eof().unwrap();
         remote_file.wait_eof().unwrap();
@@ -218,6 +226,7 @@ impl Connect {
         }
     }
     pub fn run_cmd(self:&mut Connect,cmd:&str){
+        println!("run {}",cmd);
         let mut channel = self.s.channel_session().unwrap();
         channel.exec(cmd).unwrap();
         let mut s = String::new();
@@ -225,6 +234,47 @@ impl Connect {
         print!("{}", s);
         channel.wait_close().unwrap();
         // print!(" exit code {}", channel.exit_status().unwrap());
+    }
+    fn read(self:&mut Connect,channel:&mut Channel)->String {
+        // let (out,err) = self.processs.communicate(None).unwrap();
+        // self.processs.stdout.as_ref().unwrap().flush().unwrap();
+        let mut recv = [0; 1];
+        channel.read(&mut recv).expect("unable read process");
+        // f.read(&mut recv);
+        return String::from_utf8(recv.to_vec()).unwrap();
+    }
+    fn readall(self:&mut Connect,channel:&mut Channel)->String{
+        let mut res = String::new();
+        let mut t = self.read(channel);
+        while t.len() != 1 {
+            res += &t;
+            t = self.read(channel);
+        }
+        return res;
+    }
+    fn write(self:&mut Connect,input:String,channel:&mut Channel){
+        // self.processs.communicate(Some(&input)).expect("unable to send data");
+        channel.write(input.as_bytes()).expect("unable write process");
+        // self.processs.stdin.as_ref().unwrap().flush().unwrap();
+    }
+    pub fn run_shell(self:&mut Connect,cmd:&str){
+        println!("run {}",cmd);
+        let mut channel = self.s.channel_session().unwrap();
+        // channel.request_pty("xterm", None, None).unwrap();
+        channel.exec(cmd).unwrap();
+        let stdin = std::io::stdin();
+        loop {
+            let mut buf = String::new();
+            stdin.read_line(&mut buf).unwrap();
+            self.write(buf,&mut channel);
+            let res = self.readall(&mut channel);
+            if res.len() == 0{
+                break;
+            }
+            print!("{}",res);
+        }
+        // channel.shell().unwrap();
+        channel.close().unwrap();
     }
 }
 
@@ -281,10 +331,28 @@ fn main() {
     for f in args.input_file.iter(){
         c.upload(&f);
     }
-    let stdin = std::io::stdin();
+    // let stdin = std::io::stdin();
     loop {
-        let mut buf = String::new();
-        stdin.read_line(&mut buf).unwrap();
-        c.run_cmd(&buf);
+        // print_menu();
+        // let mut buf = String::new();
+        // stdin.read_line(&mut buf).unwrap();
+        {
+            if args.no_socat{
+                if args.chroot{
+                    c.run_shell(&(String::from("chroot . ") + &args.format_prog()));
+                }
+                else{
+                    c.run_shell(&args.format_prog());
+                }
+            }
+            else{
+                if args.chroot{
+                    c.run_cmd(&format!("socat tcp-l:23333,fork,reuseaddr exec:\"{}\"",String::from("chroot . ") + &args.format_prog()));
+                }
+                else{
+                    c.run_cmd(&format!("socat tcp-l:23333,fork,reuseaddr exec:\"{}\"",args.format_prog()));
+                }
+            }
+        }
     }
 }

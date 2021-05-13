@@ -61,6 +61,12 @@ impl Args {
         "},self.gdb_port,self.qemu_arg,self.prog_arg,self.prog_name
            ,self.env,self.input_file);
     }
+    pub fn format_prog(self:&Args) ->String{
+        if self.prog_name.starts_with("./"){
+            return self.prog_name.clone();
+        }
+        return String::from("./") + &self.prog_name;
+    }
 }
 pub fn pasrse_args()->Args{
     let args: Vec<String> = env::args().collect();
@@ -83,7 +89,7 @@ pub fn pasrse_args()->Args{
         no_socat:true,
         // add multiarch-rootfs-env for args[0]
         binary_path:Path::new(&args[0]).parent().unwrap().join("multiarch-rootfs-env/").to_str().unwrap().to_string(),
-        chroot:true
+        chroot:false
     };
     let mut i=1;
     let mut find_prog_name = false;
@@ -261,4 +267,10 @@ pub fn modify_qemu_args(args:&Args,work_dir:&str) -> String{
     f.write_all(res.as_bytes()).expect("");
     f.sync_all().expect("");
     return file_path;
+}
+
+pub fn print_menu(){
+    print!(indoc! {"
+    r                       Start the program
+        "});
 }
