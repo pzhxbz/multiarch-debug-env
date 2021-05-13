@@ -11,6 +11,7 @@ fn print_help(){
     FLAGS:
         -h                           Prints help information
         -socat                       use socat to bind program's io to socket
+        -chroot                      use chroor to run program
     
     OPTIONS:
         -a <FILE1,FILE2,DIR1>        Add files or dirs send to qemu
@@ -44,7 +45,8 @@ pub struct Args{
     pub    work_dir:String,
     pub    rootfs:String,
     pub    binary_path:String,
-    pub    no_socat:bool
+    pub    no_socat:bool,
+    pub    chroot:bool
 }
 #[allow(dead_code)]
 impl Args {
@@ -80,7 +82,8 @@ pub fn pasrse_args()->Args{
         prog_port:23333,
         no_socat:true,
         // add multiarch-rootfs-env for args[0]
-        binary_path:Path::new(&args[0]).parent().unwrap().join("multiarch-rootfs-env/").to_str().unwrap().to_string()
+        binary_path:Path::new(&args[0]).parent().unwrap().join("multiarch-rootfs-env/").to_str().unwrap().to_string(),
+        chroot:true
     };
     let mut i=1;
     let mut find_prog_name = false;
@@ -118,6 +121,9 @@ pub fn pasrse_args()->Args{
         }
         else if a == "-socat"{
             res.no_socat = false;
+        }
+        else if a == "-chroot"{
+            res.chroot = true;
         }
         else if a == "-ep"{
             i += 1;

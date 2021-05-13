@@ -166,14 +166,35 @@ impl Connect {
             s:sess
         };
     }
+    fn check_dir(self:&mut Connect,path:&str){
+        
+        let mut channel = self.s.channel_session().unwrap();
+        channel.exec(&format!("if [ ! -d \"{}\" ]; then echo 1; else echo 0; fi\n",path)).unwrap();
+        let mut s = String::new();
+        channel.read_to_string(&mut s).unwrap();
+        s = s.replace("\n", "").replace(" ", "");
+        channel.wait_close().unwrap();
+        let test = channel.exit_status().unwrap();
+        // println!("check {} with {} exit with {}",path,s,test);
+        if str::parse::<u32>(&s).unwrap() != 0 {
+            self.check_dir(Path::new(path).parent().unwrap().to_str().unwrap());
+            let mut channel = self.s.channel_session().unwrap();
+            // println!("mkdir {}",path);
+            channel.exec(&format!("mkdir {}",path)).unwrap();
+            channel.read_to_string(&mut s).unwrap();
+            channel.wait_close().unwrap();
+        }
+    }
     fn send_file(self:&mut Connect,path:&str){
-        println!("sending {}",path);
+        print!("sending {}  ...",path);
         let fname = Path::new(path);
         let mut file = File::open(&fname).unwrap();
         let metadata = fs::metadata(&path).expect("unable to read metadata");
         let mut buffer = vec![0; metadata.len() as usize];
         file.read(&mut buffer).unwrap();
-        let mut remote_file = self.s.scp_send(&Path::new("/root/").join(path),
+        let remote_path = Path::new("/root/").join(path);
+        self.check_dir(remote_path.parent().unwrap().to_str().unwrap());
+        let mut remote_file = self.s.scp_send(&remote_path,
         0o777, metadata.len(), None).unwrap();
         remote_file.write(&buffer).unwrap();
         // Close the channel and wait for the whole content to be tranferred
@@ -181,6 +202,7 @@ impl Connect {
         remote_file.wait_eof().unwrap();
         remote_file.close().unwrap();
         remote_file.wait_close().unwrap();
+        println!("finish");
     }
     pub fn upload(self:&mut Connect,path:&str){
         // Write the file
@@ -202,7 +224,7 @@ impl Connect {
         channel.read_to_string(&mut s).unwrap();
         print!("{}", s);
         channel.wait_close().unwrap();
-        print!(" exit code {}", channel.exit_status().unwrap());
+        // print!(" exit code {}", channel.exit_status().unwrap());
     }
 }
 
